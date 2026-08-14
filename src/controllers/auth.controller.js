@@ -62,6 +62,8 @@ async function userLoginController(req, res) {
     user: { _id: user._id, email: user.email, name: user.name },
     token,
   });
+
+  await emailService.sendLoginEmail(user.email, user.name);
 }
 
 module.exports = { userRegisterController, userLoginController };
