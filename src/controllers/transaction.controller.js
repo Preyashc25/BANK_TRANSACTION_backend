@@ -13,15 +13,15 @@ async function createTransaction(req, res) {
     });
   }
 
-  const fromAccount = await accountModel.findOne({
+  const fromUserAccount = await accountModel.findOne({
     _id: fromAccount,
   });
 
-  const toAccount = await accountModel.findOne({
+  const toUserAccount = await accountModel.findOne({
     _id: toAccount,
   });
 
-  if (!fromAccount || !toAccount) {
+  if (!fromUserAccount || !toUserAccount) {
     return res.status(401).json({
       message: "Invalid fromAccount to toAccount",
     });
@@ -55,7 +55,10 @@ async function createTransaction(req, res) {
     }
   }
 
-  if (fromAccount.status !== "ACTIVE" || toAccount.status !== "ACTIVE") {
+  if (
+    fromUserAccount.status !== "ACTIVE" ||
+    toUserAccount.status !== "ACTIVE"
+  ) {
     return res.status(401).json({
       message:
         "For transaction fromAccount and toAccount status must be ACTIVE",
@@ -70,45 +73,67 @@ async function createTransaction(req, res) {
     });
   }
 
-  const session = await mongoose.startSessio();
+  let transaction;
+  try{
+  const session = await mongoose.startSession();
   session.startTransaction();
 
-  const transaction = await transactionModel.create(
-    {
-      fromAccount,
-      toAccount,
-      amount,
-      idempotencykey,
-      status: "PENDING",
-    },
-    { session },
-  );
+  transaction = (
+    await transactionModel.create(
+      [
+        {
+          fromAccount,
+          toAccount,
+          amount,
+          idempotencykey,
+          status: "PENDING",
+        },
+      ],
+      { session },
+    )
+  )[0];
 
   const debitLedgerEntry = await ledgerModel.create(
-    {
-      account: fromAccount,
-      amount: amount,
-      transaction: transaction._id,
-      type: "DEBIT",
-    },
+    [
+      {
+        account: fromAccount,
+        amount: amount,
+        transaction: transaction._id,
+        type: "DEBIT",
+      },
+    ],
     { session },
   );
+
+  await(()=>{
+    return new Promise((resolve)=> setTimeout(resolve,100*1000))
+  })()
 
   const creditLedgerEntry = await ledgerModel.create(
-    {
-      account: toAccount,
-      amount: amount,
-      transaction: transaction._id,
-      type: "CREDIT",
-    },
+    [
+      {
+        account: toAccount,
+        amount: amount,
+        transaction: transaction._id,
+        type: "CREDIT",
+      },
+    ],
     { session },
   );
 
-  transaction.status = "COMPLETED";
-  await transaction.save({ session });
+  await transactionModel.findOneAndUpdate(
+    { _id: transaction._id },
+    { status: "COMPLETED" },
+    { sesssion },
+  );
 
   await session.commitTransaction();
   session.endSession();
+}catch{
+  return res.status(400).json({
+    message:'Transaction Pending due to some issues please try again after some time'
+  })
+}
 
   emailService.sendTransactionEmail(
     req.user.email,
@@ -118,9 +143,9 @@ async function createTransaction(req, res) {
   );
 
   return res.status(201).json({
-    message:'Transaction successfully..',
-    transaction:transaction
-  })
+    message: "Transaction successfully..",
+    transaction: transaction,
+  });
 }
 
 async function createInitialFundsTransaction(req, res) {
@@ -133,7 +158,7 @@ async function createInitialFundsTransaction(req, res) {
   }
 
   const toUserAccount = await accountModel.findOne({ _id: toAccount });
-  console.log(toAccount);
+  console.log("to account:", toUserAccount);
 
   if (!toUserAccount) {
     return res.status(401).json({
@@ -144,6 +169,7 @@ async function createInitialFundsTransaction(req, res) {
   const fromUserAccount = await accountModel.findOne({
     user: req.user._id,
   });
+  console.log("from account:", fromUserAccount);
 
   if (!fromUserAccount) {
     return res.status(401).json({
@@ -158,7 +184,7 @@ async function createInitialFundsTransaction(req, res) {
     fromAccount: fromUserAccount._id,
     toAccount,
     amount,
-    idempotencyKey,
+    idempotencykey: idempotencykey,
     status: "PENDING",
   });
 

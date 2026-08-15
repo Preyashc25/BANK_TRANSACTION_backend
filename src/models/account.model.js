@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-
+const ledgerModel = require("./ledger.model");
 const accountSchema = new mongoose.Schema(
   {
     user: {
@@ -50,7 +50,7 @@ accountSchema.methods.getBalance = async function () {
     {
       $project: {
         _id: 0,
-        balance: { $subtract: ["totalCredit", "$totalDebit"] },
+        balance: { $subtract: ["$totalCredit", "$totalDebit"] },
       },
     },
   ]);
